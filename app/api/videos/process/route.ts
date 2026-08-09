@@ -56,6 +56,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Reset a previous failure so a retry starts clean instead of showing the
+    // old reason while it works.
+    if (video.status === 'failed' && video.errorMessage) {
+      await prisma.video.update({
+        where: { id: video.id },
+        data: { errorMessage: null },
+      })
+    }
+
     if (video.status === 'completed') {
       const clipCount = await prisma.clip.count({ where: { videoId: video.id } })
       return NextResponse.json({ done: true, status: 'completed', clipCount, progress: 100 })

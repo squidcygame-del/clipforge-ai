@@ -47,6 +47,18 @@ export class RetryableError extends Error {
 }
 
 /**
+ * Cloudinary rejected the delivery URL itself — a bad transformation parameter,
+ * not a bad video. Retrying the same URL would fail identically, so the caller
+ * falls back to a simpler URL instead.
+ */
+export class BadTransformError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'BadTransformError'
+  }
+}
+
+/**
  * Turns an OpenAI SDK failure into something a person can act on.
  *
  * The SDK reports every network-level problem as the single opaque string
@@ -102,6 +114,54 @@ export interface TranscriptSegment {
 }
 
 /**
+ * Downloads one audio chunk from Cloudinary.
+ *
+ * Returns null when the slice is past the end of the video. Throws
+ * NotReadyError while Cloudinary is still rendering, and RetryableError for
+ * passing network trouble.
+ */
+async function fetchAudioChunk(
+  cloudinaryId: string,
+  chunkIndex: number,
+  plain: boolean
+): Promise<{ buffer: Buffer } | null> {
+  const url = audioChunkUrl(cloudinaryId, chunkIndex, plain)
+
+  let res: Response
+  try {
+    res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
+  } catch (error: any) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new NotReadyError('Cloudinary is still preparing the audio. Retrying.')
+    }
+    throw new RetryableError('Could not reach Cloudinary just now. Retrying.')
+  }
+
+  // 423 Locked means the derived audio file is still being generated.
+  if (res.status === 423) throw new NotReadyError()
+
+  // Past the end of the video — nothing left to transcribe.
+  if (res.status === 404) return null
+
+  if (!res.ok) {
+    // Cloudinary explains itself in this header. Without it a rejected
+    // transformation looks identical to a video that has no sound.
+    const reason = res.headers.get('x-cld-error') || ''
+    throw new BadTransformError(
+      `Cloudinary refused the audio request (HTTP ${res.status})` +
+        (reason ? `: ${reason}` : '')
+    )
+  }
+
+  const buffer = Buffer.from(await res.arrayBuffer())
+
+  // A tiny body means we asked for a slice past the end of the video.
+  if (buffer.byteLength < 1024) return null
+
+  return { buffer }
+}
+
+/**
  * Transcribes one 2-minute slice of the video.
  *
  * We pull the audio as mp3 straight from Cloudinary rather than downloading the
@@ -113,50 +173,24 @@ export async function transcribeChunk(
   cloudinaryId: string,
   chunkIndex: number
 ): Promise<TranscriptSegment[]> {
-  const url = audioChunkUrl(cloudinaryId, chunkIndex)
+  let chunk: { buffer: Buffer } | null
 
-  // Cloudinary renders the audio on first request. If it is slow we bail out
-  // early and retry, rather than holding the function open until it is killed.
-  let audioRes: Response
   try {
-    audioRes = await fetch(url, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(20_000),
-    })
-  } catch (error: any) {
-    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-      throw new NotReadyError('Cloudinary is still preparing the audio. Retrying.')
-    }
-    throw new RetryableError('Could not reach Cloudinary just now. Retrying.')
+    chunk = await fetchAudioChunk(cloudinaryId, chunkIndex, false)
+  } catch (error) {
+    if (!(error instanceof BadTransformError)) throw error
+
+    // The tuned URL was rejected. Rather than failing the whole video, ask
+    // again for a plain trim with no audio parameters. Bigger file, same words.
+    console.warn('Tuned audio URL rejected, falling back to plain:', (error as Error).message)
+    chunk = await fetchAudioChunk(cloudinaryId, chunkIndex, true)
   }
 
-  // 423 Locked means the derived audio file is still being generated.
-  if (audioRes.status === 423) {
-    throw new NotReadyError()
-  }
-
-  if (audioRes.status === 404) {
-    // Past the end of the video — nothing left to transcribe.
-    return []
-  }
-
-  if (!audioRes.ok) {
-    throw new Error(
-      `Could not read the audio track from Cloudinary (HTTP ${audioRes.status}). ` +
-        'The file may not contain audio.'
-    )
-  }
-
-  const buffer = Buffer.from(await audioRes.arrayBuffer())
-
-  // A tiny body means we asked for a slice past the end of the video.
-  if (buffer.byteLength < 1024) {
-    return []
-  }
+  if (!chunk) return []
 
   // Node 18+ (which Vercel runs) has File and Blob built in, so we hand Whisper
   // a plain File rather than relying on an SDK helper.
-  const file = new File([buffer], `chunk-${chunkIndex}.mp3`, { type: 'audio/mpeg' })
+  const file = new File([chunk.buffer], `chunk-${chunkIndex}.mp3`, { type: 'audio/mpeg' })
 
   let result: any
   try {

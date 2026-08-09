@@ -155,6 +155,7 @@ masla kya hai.
 | "Your OpenAI account has no credit left" | Balance khatam | STEP 3 |
 | "OpenAI rejected the API key" | `OPENAI_API_KEY` ghalat ya purani | Nayi key banao, Vercel mein daalo, redeploy |
 | "Cloudinary is not configured" | Teen mein se koi env var missing | STEP 2 |
+| "Cloudinary refused the audio request (HTTP 400)" | Delivery URL mein koi parameter ghalat | Code khud saada URL se dobara koshish karta hai; agar phir bhi aaye to log ki poori line bhejo |
 | "Hit a snag, retrying" | Aarzi rukawat, khud theek ho jati hai | Kuch mat karo, 12 baar tak khud koshish karega |
 | "No speech was found in this video" | Video mein awaz nahi, ya sirf music hai | Aisi video do jismein koi baat kar raha ho |
 | "The server took too long on that step" | Woh step 60 second mein khatam nahi hua | Chhoti video se test karo, phir logs dekho |

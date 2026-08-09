@@ -70,21 +70,36 @@ function deliveryBase(cloudName: string): string {
 /**
  * URL for one slice of the video's audio track, delivered as mp3.
  *
- * The transformations matter as much as the trim:
- *   ac_mono    — one channel instead of two
- *   af_16000   — 16 kHz, which is exactly what Whisper listens at anyway
+ * The parameters, and why each one is exactly this and not something else:
+ *   so_ / eo_  — start and end offset in seconds
+ *   ac_mp3     — audio codec. `ac_` sets the CODEC, and its only legal values
+ *                are none, aac, vorbis, mp3 and opus. It is NOT a channel
+ *                count: `ac_mono` is not a real value and Cloudinary rejects
+ *                the whole URL with 400 if you use it.
  *   br_32k     — 32 kbps, plenty for speech
+ *   af_16000   — 16 kHz, exactly what Whisper listens at anyway
  *
- * Together these turn a ~2 MB/minute stereo file into ~0.24 MB/minute. Smaller
- * files are quicker for Cloudinary to render, quicker to download, and quicker
- * to forward to Whisper — which is what keeps each step inside the time limit.
+ * Everything sits in a single transformation component because that is the form
+ * Cloudinary's own documented example uses (`so_2.0,du_3,ac_mp3,br_44k`).
+ *
+ * Result: roughly 0.24 MB per minute instead of ~2 MB. Smaller files render
+ * faster at Cloudinary, download faster, and reach Whisper faster — which is
+ * what keeps each step inside the serverless time limit.
+ *
+ * Pass `plain: true` to drop the audio parameters entirely. That is the
+ * fallback used when the tuned URL is rejected, so one bad parameter can never
+ * take down the whole pipeline.
  */
-export function audioChunkUrl(publicId: string, chunkIndex: number): string {
+export function audioChunkUrl(publicId: string, chunkIndex: number, plain = false): string {
   const { cloudName } = getCloudinaryConfig()
   const start = chunkIndex * CHUNK_SECONDS
   const end = start + CHUNK_SECONDS
 
-  return `${deliveryBase(cloudName)}/so_${start},eo_${end}/ac_mono,af_16000,br_32k/${publicId}.mp3`
+  const transform = plain
+    ? `so_${start},eo_${end}`
+    : `so_${start},eo_${end},ac_mp3,br_32k,af_16000`
+
+  return `${deliveryBase(cloudName)}/${transform}/${publicId}.mp3`
 }
 
 export type AspectRatio = '9:16' | '1:1' | '16:9'
