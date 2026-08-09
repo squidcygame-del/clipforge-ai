@@ -2,7 +2,7 @@ import './globals.css'
 import { Toaster } from 'react-hot-toast'
 import { getServerSession } from 'next-auth'
 import SessionProvider from '@/components/SessionProvider'
-import { authOptions } from './api/auth/[...nextauth]/route'
+import { authOptions } from '@/lib/auth'
 
 export const metadata = {
   title: 'ClipForge AI - AI-Powered Content Repurposing',
