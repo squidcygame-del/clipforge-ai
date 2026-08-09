@@ -16,7 +16,13 @@ function getOpenAI(): OpenAI {
         'OPENAI_API_KEY is not set. Add it in your Vercel project settings under Environment Variables.'
       )
     }
-    openaiClient = new OpenAI({ apiKey })
+    openaiClient = new OpenAI({
+      apiKey,
+      // Fail fast and let the browser retry, rather than sitting on a stalled
+      // socket until the whole serverless function is killed.
+      timeout: 25_000,
+      maxRetries: 1,
+    })
   }
   return openaiClient
 }
@@ -32,6 +38,63 @@ export class NotReadyError extends Error {
   }
 }
 
+/** A transient failure. Worth retrying; not worth showing the user as fatal. */
+export class RetryableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RetryableError'
+  }
+}
+
+/**
+ * Turns an OpenAI SDK failure into something a person can act on.
+ *
+ * The SDK reports every network-level problem as the single opaque string
+ * "Connection error.", which tells the user nothing about what to fix, so we
+ * separate out the cases that have real, different answers.
+ */
+function translateOpenAIError(error: any): Error {
+  const status = error?.status ?? error?.response?.status
+  const code = error?.code ?? error?.error?.code
+
+  if (status === 401) {
+    return new Error(
+      'OpenAI rejected the API key. Check OPENAI_API_KEY in Vercel, then redeploy.'
+    )
+  }
+
+  if (status === 429 || code === 'insufficient_quota') {
+    if (code === 'insufficient_quota') {
+      return new Error(
+        'Your OpenAI account has no credit left. Add a payment method and some balance at ' +
+          'platform.openai.com under Settings, Billing.'
+      )
+    }
+    return new RetryableError('OpenAI is rate limiting us. Waiting a moment before retrying.')
+  }
+
+  if (status === 400 && /file|audio|format/i.test(String(error?.message))) {
+    return new Error('OpenAI could not read this audio. The video may have no sound track.')
+  }
+
+  // APIConnectionError, timeouts, aborted sockets — all transient.
+  const name = String(error?.name || '')
+  if (
+    name === 'APIConnectionError' ||
+    name === 'APIConnectionTimeoutError' ||
+    name === 'AbortError' ||
+    /connection error|timeout|fetch failed|socket/i.test(String(error?.message))
+  ) {
+    return new RetryableError('Could not reach OpenAI just now. Retrying.')
+  }
+
+  if (status >= 500) {
+    return new RetryableError('OpenAI had a server error. Retrying.')
+  }
+
+  return new Error(error?.message || 'OpenAI request failed')
+}
+
 export interface TranscriptSegment {
   start: number
   end: number
@@ -39,7 +102,7 @@ export interface TranscriptSegment {
 }
 
 /**
- * Transcribes one 5-minute slice of the video.
+ * Transcribes one 2-minute slice of the video.
  *
  * We pull the audio as mp3 straight from Cloudinary rather than downloading the
  * whole video, which keeps each request small enough to finish inside a
@@ -52,11 +115,29 @@ export async function transcribeChunk(
 ): Promise<TranscriptSegment[]> {
   const url = audioChunkUrl(cloudinaryId, chunkIndex)
 
-  const audioRes = await fetch(url, { cache: 'no-store' })
+  // Cloudinary renders the audio on first request. If it is slow we bail out
+  // early and retry, rather than holding the function open until it is killed.
+  let audioRes: Response
+  try {
+    audioRes = await fetch(url, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000),
+    })
+  } catch (error: any) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new NotReadyError('Cloudinary is still preparing the audio. Retrying.')
+    }
+    throw new RetryableError('Could not reach Cloudinary just now. Retrying.')
+  }
 
   // 423 Locked means the derived audio file is still being generated.
   if (audioRes.status === 423) {
     throw new NotReadyError()
+  }
+
+  if (audioRes.status === 404) {
+    // Past the end of the video — nothing left to transcribe.
+    return []
   }
 
   if (!audioRes.ok) {
@@ -77,12 +158,17 @@ export async function transcribeChunk(
   // a plain File rather than relying on an SDK helper.
   const file = new File([buffer], `chunk-${chunkIndex}.mp3`, { type: 'audio/mpeg' })
 
-  const result: any = await getOpenAI().audio.transcriptions.create({
-    file,
-    model: 'whisper-1',
-    response_format: 'verbose_json',
-    timestamp_granularities: ['segment'],
-  })
+  let result: any
+  try {
+    result = await getOpenAI().audio.transcriptions.create({
+      file,
+      model: 'whisper-1',
+      response_format: 'verbose_json',
+      timestamp_granularities: ['segment'],
+    })
+  } catch (error) {
+    throw translateOpenAIError(error)
+  }
 
   const offset = chunkIndex * CHUNK_SECONDS
   const segments: any[] = Array.isArray(result?.segments) ? result.segments : []
@@ -173,20 +259,25 @@ Reply with JSON exactly in this shape:
   ]
 }`
 
-  const response = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o',
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are an expert short-form video editor. You pick moments that stop the scroll, ' +
-          'and you only ever reply with valid JSON.',
-      },
-      { role: 'user', content: prompt },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.7,
-  })
+  let response
+  try {
+    response = await getOpenAI().chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert short-form video editor. You pick moments that stop the scroll, ' +
+            'and you only ever reply with valid JSON.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+    })
+  } catch (error) {
+    throw translateOpenAIError(error)
+  }
 
   const parsed = JSON.parse(response.choices[0]?.message?.content || '{}')
   const rawMoments: any[] = Array.isArray(parsed?.moments) ? parsed.moments : []

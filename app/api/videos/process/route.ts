@@ -7,6 +7,7 @@ import {
   formatTranscript,
   analyzeTranscript,
   NotReadyError,
+  RetryableError,
 } from '@/lib/ai-service'
 import { clipUrl, clipThumbnailUrl, AspectRatio } from '@/lib/cloudinary'
 
@@ -16,7 +17,7 @@ import { clipUrl, clipThumbnailUrl, AspectRatio } from '@/lib/cloudinary'
  * This is the heart of the design. A serverless function cannot run for the
  * several minutes a full transcription takes, so instead of one long job the
  * browser calls this endpoint repeatedly and each call does a single small piece
- * of work: transcribe the next 5-minute chunk, or run the analysis, or finish.
+ * of work: transcribe the next 2-minute chunk, or run the analysis, or finish.
  * Progress lives in the database, so a dropped connection just resumes.
  */
 
@@ -68,13 +69,14 @@ export async function POST(req: NextRequest) {
       try {
         segments = await transcribeChunk(video.cloudinaryId, index)
       } catch (error) {
-        // Cloudinary is still preparing the audio — not an error, just early.
-        if (error instanceof NotReadyError) {
+        // Cloudinary still rendering, or a passing network problem. Neither is
+        // fatal — report progress unchanged and let the browser ask again.
+        if (error instanceof NotReadyError || error instanceof RetryableError) {
           return NextResponse.json({
             done: false,
             status: 'transcribing',
             retry: true,
-            message: 'Preparing audio, one moment',
+            message: (error as Error).message,
             progress: transcribeProgress(video.transcribedChunks, video.totalChunks),
           })
         }
@@ -120,7 +122,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const analysis = await analyzeTranscript(video.transcript, video.duration)
+    let analysis
+    try {
+      analysis = await analyzeTranscript(video.transcript, video.duration)
+    } catch (error) {
+      if (error instanceof RetryableError) {
+        return NextResponse.json({
+          done: false,
+          status: 'analyzing',
+          retry: true,
+          message: (error as Error).message,
+          progress: 85,
+        })
+      }
+      throw error
+    }
 
     if (analysis.moments.length === 0) {
       await prisma.video.update({

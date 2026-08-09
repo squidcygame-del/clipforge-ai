@@ -45,3 +45,13 @@ h1, h2, h3, h4, h5, h6 {
 body {
   line-height: 1.6;
 }
+
+@layer components {
+  /*
+   * Buttons and badges across the app use `rounded-pill`. That is not a Tailwind
+   * class, so without this rule every one of them renders with square corners.
+   */
+  .rounded-pill {
+    border-radius: var(--radius-pill);
+  }
+}

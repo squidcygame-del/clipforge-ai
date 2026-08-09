@@ -93,19 +93,40 @@ export default function UploadPage() {
     setPercent(0)
     setStepLabel('Listening to your video')
 
-    for (let guard = 0; guard < 400; guard++) {
+    // Transient failures are common (Cloudinary rendering, a slow hop to
+    // OpenAI). We forgive a generous number of them, but stop eventually so a
+    // genuinely broken job cannot spin forever.
+    let softFailures = 0
+
+    for (let guard = 0; guard < 600; guard++) {
       if (cancelled.current) return
 
-      const res = await fetch('/api/videos/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId }),
-      })
+      let data: any
+      try {
+        const res = await fetch('/api/videos/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoId }),
+        })
 
-      const data = await res.json()
+        // A timed-out function returns an HTML error page, not JSON.
+        const text = await res.text()
+        try {
+          data = JSON.parse(text)
+        } catch {
+          throw new Error(`The server took too long on that step (HTTP ${res.status})`)
+        }
 
-      if (!res.ok && !data?.retry) {
-        throw new Error(data?.error || 'Processing failed')
+        if (!res.ok && !data?.retry) {
+          throw new Error(data?.error || 'Processing failed')
+        }
+      } catch (error: any) {
+        softFailures++
+        if (softFailures > 12) throw error
+
+        setStepLabel('Hit a snag, retrying')
+        await new Promise((r) => setTimeout(r, 5000))
+        continue
       }
 
       if (typeof data.progress === 'number') setPercent(data.progress)
@@ -120,10 +141,10 @@ export default function UploadPage() {
         return
       }
 
-      if (data.status === 'analyzing') setStepLabel('Finding your best moments')
+      if (data.status === 'analyzing' && !data.message) setStepLabel('Finding your best moments')
 
       // A short pause keeps us well clear of any rate limit.
-      await new Promise((r) => setTimeout(r, data.retry ? 4000 : 700))
+      await new Promise((r) => setTimeout(r, data.retry ? 5000 : 700))
     }
 
     throw new Error('This video is taking unusually long. Check the dashboard in a few minutes.')

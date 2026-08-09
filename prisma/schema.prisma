@@ -90,7 +90,7 @@ model Video {
   status      String   @default("uploaded")
 
   // Whisper only takes ~25 MB at a time, so long videos are transcribed in
-  // 5-minute chunks. These two fields are the resume point if a step fails.
+  // 2-minute chunks. These two fields are the resume point if a step fails.
   transcript        String? @db.Text
   transcribedChunks Int     @default(0)
   totalChunks       Int     @default(0)

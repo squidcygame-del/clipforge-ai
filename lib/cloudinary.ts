@@ -11,8 +11,14 @@ import crypto from 'crypto'
  * Every value is read lazily so a missing env var can never crash `next build`.
  */
 
-/** How many seconds of audio we send to Whisper in one request. */
-export const CHUNK_SECONDS = 300 // 5 minutes
+/**
+ * How many seconds of audio we send to Whisper in one request.
+ *
+ * Kept deliberately short. Every step must finish inside the serverless time
+ * limit, and the very first chunk also pays for Cloudinary generating the audio
+ * track from scratch, which is the slowest moment in the whole pipeline.
+ */
+export const CHUNK_SECONDS = 120 // 2 minutes
 
 export interface CloudinaryConfig {
   cloudName: string
@@ -63,14 +69,22 @@ function deliveryBase(cloudName: string): string {
 
 /**
  * URL for one slice of the video's audio track, delivered as mp3.
- * A 5-minute mp3 lands around 3-5 MB, comfortably under Whisper's 25 MB limit.
+ *
+ * The transformations matter as much as the trim:
+ *   ac_mono    — one channel instead of two
+ *   af_16000   — 16 kHz, which is exactly what Whisper listens at anyway
+ *   br_32k     — 32 kbps, plenty for speech
+ *
+ * Together these turn a ~2 MB/minute stereo file into ~0.24 MB/minute. Smaller
+ * files are quicker for Cloudinary to render, quicker to download, and quicker
+ * to forward to Whisper — which is what keeps each step inside the time limit.
  */
 export function audioChunkUrl(publicId: string, chunkIndex: number): string {
   const { cloudName } = getCloudinaryConfig()
   const start = chunkIndex * CHUNK_SECONDS
   const end = start + CHUNK_SECONDS
 
-  return `${deliveryBase(cloudName)}/so_${start},eo_${end}/${publicId}.mp3`
+  return `${deliveryBase(cloudName)}/so_${start},eo_${end}/ac_mono,af_16000,br_32k/${publicId}.mp3`
 }
 
 export type AspectRatio = '9:16' | '1:1' | '16:9'
