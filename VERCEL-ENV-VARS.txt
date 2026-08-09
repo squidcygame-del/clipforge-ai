@@ -1,0 +1,33 @@
+============================================================
+CLIPFORGE AI - VERCEL ENVIRONMENT VARIABLES
+============================================================
+Vercel -> your project -> Settings -> Environment Variables
+
+--- ZAROORI (in ke baghair site nahi chalegi) ---
+
+DATABASE_URL
+  postgresql://neondb_owner:PASSWORD@ep-autumn-mountain-aysdcbwf.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require
+
+NEXTAUTH_URL
+  https://YOUR-PROJECT.vercel.app     (deploy hone ke baad asli URL daalein)
+
+NEXTAUTH_SECRET
+  (koi bhi 32-character random string)
+
+--- OPTIONAL (baad mein add karein, build inke baghair bhi pass hogi) ---
+
+OPENAI_API_KEY            sk-...            (AI clip feature ke liye)
+GOOGLE_CLIENT_ID          ...               (Google login ke liye)
+GOOGLE_CLIENT_SECRET      ...
+STRIPE_SECRET_KEY         sk_test_...       (payments ke liye)
+STRIPE_PUBLISHABLE_KEY    pk_test_...
+STRIPE_WEBHOOK_SECRET     whsec_...
+STRIPE_PRICE_BASIC        price_...
+STRIPE_PRICE_PRO          price_...
+STRIPE_PRICE_ENTERPRISE   price_...
+
+============================================================
+NOTE: Sirf pehle 3 se site live ho jayegi (homepage, pricing,
+signup, login). AI aur payment features tab kaam karenge jab
+un ki keys add karenge.
+============================================================

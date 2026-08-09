@@ -1,0 +1,47 @@
+{
+  "name": "clipforge-ai",
+  "version": "1.0.0",
+  "description": "AI-Powered Content Repurposing Platform for Influencers",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && (prisma db push --skip-generate || echo 'db push skipped') && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "5.5.4",
+    "@prisma/client": "5.18.0",
+    "prisma": "5.18.0",
+    "next-auth": "4.24.7",
+    "@next-auth/prisma-adapter": "1.0.7",
+    "stripe": "16.7.0",
+    "openai": "4.55.4",
+    "zod": "3.23.8",
+    "axios": "1.7.3",
+    "bcryptjs": "2.4.3",
+    "jsonwebtoken": "9.0.2",
+    "@types/node": "22.1.0",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@types/bcryptjs": "2.4.6",
+    "@types/jsonwebtoken": "9.0.6",
+    "tailwindcss": "3.4.7",
+    "postcss": "8.4.41",
+    "autoprefixer": "10.4.20",
+    "clsx": "2.1.1",
+    "lucide-react": "0.424.0",
+    "date-fns": "3.6.0",
+    "react-hook-form": "7.52.2",
+    "@hookform/resolvers": "3.9.0",
+    "react-hot-toast": "2.4.1",
+    "framer-motion": "11.3.24"
+  },
+  "devDependencies": {
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.5"
+  }
+}
