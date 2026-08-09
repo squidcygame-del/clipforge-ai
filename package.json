@@ -2,6 +2,9 @@
   "name": "clipforge-ai",
   "version": "1.0.0",
   "description": "AI-Powered Content Repurposing Platform for Influencers",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && (prisma db push --skip-generate || echo 'db push skipped') && next build",

@@ -81,12 +81,29 @@ model Video {
   url         String
   duration    Int      // in seconds
   thumbnail   String?
-  status      String   @default("processing") // processing, completed, failed
+
+  // Cloudinary's identifier for the stored original. Every clip URL and every
+  // audio chunk is derived from this, so it is the most important field here.
+  cloudinaryId String?
+
+  // uploaded -> transcribing -> analyzing -> completed (or failed)
+  status      String   @default("uploaded")
+
+  // Whisper only takes ~25 MB at a time, so long videos are transcribed in
+  // 5-minute chunks. These two fields are the resume point if a step fails.
+  transcript        String? @db.Text
+  transcribedChunks Int     @default(0)
+  totalChunks       Int     @default(0)
+
+  errorMessage String? @db.Text
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   clips Clip[]
+
+  @@index([userId])
 }
 
 model Clip {
@@ -101,9 +118,13 @@ model Clip {
   aspectRatio String   // 9:16, 1:1, 16:9
   url         String?
   thumbnail   String?
+  score       Float    @default(0) // how viral the AI thinks this moment is
+  reason      String?  @db.Text    // why the AI picked it
   status      String   @default("pending") // pending, generated, exported
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
 }
