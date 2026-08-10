@@ -130,17 +130,45 @@ confirm karo ke poora pipeline chal raha hai.
 
 ---
 
-## Kuch galat ho to — Vercel ke logs kaise parhein
+## Kuch galat ho to — pehle health check kholo
 
-Yehi asli jawab dete hain. Screenshot se pata nahi chalta ke andar kya toota.
+Andaza lagane ki zaroorat nahi. Login karne ke baad yeh safha kholo:
+
+```
+aap-ki-site.vercel.app/api/health
+```
+
+Yeh khud check karke batata hai:
+
+- saaton environment variables lagi hain ya koi missing hai
+- OpenAI key qabool ho rahi hai ya nahi
+- **OpenAI mein balance bacha hai ya khatam ho gaya**
+- Cloudinary ki key aur secret sahi hain ya nahi
+
+Har line par PASS ya FAIL likha hota hai, aur FAIL ke sath yeh bhi ke karna kya
+hai. Koi secret is safhe par kabhi nahi dikhta — sirf yeh ke lagi hui hai ya
+nahi.
+
+Yeh safha login ke baghair nahi khulta, aur balance check karne ke liye ek
+zara si OpenAI request bhejta hai (aik cent ka chand hissa).
+
+---
+
+## Vercel ke logs kaise parhein
+
+Health check sab kuch PASS de raha ho aur phir bhi video na chale, tab logs
+dekho.
 
 1. Vercel → apna project → upar **Logs** tab
 2. Upar right mein time range **Last 1 hour** kar do
 3. Site par woh kaam dobara karo jo fail ho raha hai
 4. Logs khud aate rahenge. Laal (error) line par click karke faila kar dekho
 
-Aap ko `Process video error:` se shuru hone wali line dhoondhni hai — uske baad
-asli wajah likhi hoti hai.
+In do mein se koi line dhoondho:
+
+- `OpenAI failure:` — iske sath asli `name`, `status` aur `code` likha hota
+  hai, jis se pata chalta hai ke masla paisa tha, key thi, ya connection
+- `Process video error:` — koi bhi doosri wajah
 
 **Woh poori line copy karke mujhe bhej dena.** Us se main seedha bata sakunga ke
 masla kya hai.
@@ -156,6 +184,7 @@ masla kya hai.
 | "OpenAI rejected the API key" | `OPENAI_API_KEY` ghalat ya purani | Nayi key banao, Vercel mein daalo, redeploy |
 | "Cloudinary is not configured" | Teen mein se koi env var missing | STEP 2 |
 | "Cloudinary refused the audio request (HTTP 400)" | Delivery URL mein koi parameter ghalat | Code khud saada URL se dobara koshish karta hai; agar phir bhi aaye to log ki poori line bhejo |
+| "Could not reach OpenAI just now. Retrying." | Connection ya waqt ka masla — balance ka nahi | `/api/health` kholo; woh saaf bata dega ke balance hai ya nahi |
 | "Hit a snag, retrying" | Aarzi rukawat, khud theek ho jati hai | Kuch mat karo, 12 baar tak khud koshish karega |
 | "No speech was found in this video" | Video mein awaz nahi, ya sirf music hai | Aisi video do jismein koi baat kar raha ho |
 | "The server took too long on that step" | Woh step 60 second mein khatam nahi hua | Chhoti video se test karo, phir logs dekho |

@@ -18,10 +18,15 @@ function getOpenAI(): OpenAI {
     }
     openaiClient = new OpenAI({
       apiKey,
-      // Fail fast and let the browser retry, rather than sitting on a stalled
-      // socket until the whole serverless function is killed.
-      timeout: 25_000,
-      maxRetries: 1,
+      // Time budget for one /api/videos/process call is 60s, shared with the
+      // Cloudinary fetch (15s). One Whisper attempt at 40s leaves 5s of slack.
+      //
+      // SDK retries are OFF on purpose: a retry here would double the wait to
+      // 80s and the function would be killed before it could report anything.
+      // The browser loop already retries, and it does so without holding a
+      // serverless function open.
+      timeout: 40_000,
+      maxRetries: 0,
     })
   }
   return openaiClient
@@ -68,6 +73,17 @@ export class BadTransformError extends Error {
 function translateOpenAIError(error: any): Error {
   const status = error?.status ?? error?.response?.status
   const code = error?.code ?? error?.error?.code
+
+  // Log the raw shape before translating. Our friendly message is all the
+  // browser ever sees, so without this the Vercel log cannot tell a dead socket
+  // apart from an empty wallet — and those have completely different fixes.
+  console.error('OpenAI failure:', {
+    name: error?.name,
+    status,
+    code,
+    type: error?.error?.type,
+    message: String(error?.message || '').slice(0, 300),
+  })
 
   if (status === 401) {
     return new Error(
@@ -129,7 +145,7 @@ async function fetchAudioChunk(
 
   let res: Response
   try {
-    res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
+    res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15_000) })
   } catch (error: any) {
     if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
       throw new NotReadyError('Cloudinary is still preparing the audio. Retrying.')
